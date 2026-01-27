@@ -1,0 +1,15 @@
+services:
+  - type: worker
+    name: gake-tracker
+    env: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: SOLANA_RPC
+        value: https://api.mainnet-beta.solana.com
+      - key: BIRDEYE_API_KEY
+        sync: false
