@@ -11,6 +11,7 @@ import requests
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 import logging
+import threading
 
 # Setup logging
 logging.basicConfig(
@@ -29,6 +30,7 @@ BIRDEYE_API_KEY = os.getenv("BIRDEYE_API_KEY", "")
 # Cache untuk tracking
 transaction_cache = set()
 token_positions = {}
+reminder_queue = []  # Queue for scheduled reminders
 last_check_time = None
 
 class GakeTracker:
@@ -276,7 +278,7 @@ class GakeTracker:
             return 50  # Peak, major distribution
     
     def send_telegram_alert(self, trade_data: Dict, token_info: Dict, timing_analysis: Dict):
-        """Send formatted alert to Telegram"""
+        """Send formatted alert to Telegram with interactive buttons"""
         if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
             logger.warning("Telegram credentials not configured")
             return
@@ -288,6 +290,7 @@ class GakeTracker:
             mc = token_info.get("market_cap", 0)
             price = token_info.get("price", 0)
             liquidity = token_info.get("liquidity", 0)
+            token_mint = trade_data['token_mint']
             
             # Format market cap
             if mc >= 1_000_000:
@@ -312,7 +315,7 @@ class GakeTracker:
 {emoji} <b>GAKE {action} ALERT!</b> {emoji}
 
 💎 <b>Token:</b> ${symbol} ({name})
-🔗 <b>Mint:</b> <code>{trade_data['token_mint'][:8]}...{trade_data['token_mint'][-8:]}</code>
+🔗 <b>Mint:</b> <code>{token_mint[:8]}...{token_mint[-8:]}</code>
 
 📊 <b>Market Data:</b>
 ├ Market Cap: {mc_str}
@@ -331,23 +334,63 @@ class GakeTracker:
 
 <b>Risk Level:</b> {timing_analysis['risk_level']}
 
-🔍 <a href="https://dexscreener.com/solana/{trade_data['token_mint']}">DexScreener</a> | <a href="https://solscan.io/token/{trade_data['token_mint']}">Solscan</a>
-
 ⚠️ <b>Remember:</b>
 • DON'T blindly copy trade
 • Use stop loss (-20%)
 • Take profits gradually
 • DYOR before entry
 
-<i>Powered by Gake Tracker v1.0</i>
+<i>Powered by Gake Tracker v2.0</i>
 """
+            
+            # Build inline keyboard with Axiom integration
+            inline_keyboard = []
+            
+            # Row 1: Trade buttons
+            if action in ["BUY", "REBUY"]:
+                # Axiom buy link
+                axiom_url = f"https://t.me/axiom_solana_bot?start={token_mint}"
+                inline_keyboard.append([
+                    {"text": "🛒 Buy on Axiom", "url": axiom_url},
+                    {"text": "📊 View Chart", "url": f"https://dexscreener.com/solana/{token_mint}"}
+                ])
+            elif action == "SELL":
+                # Axiom sell link
+                axiom_url = f"https://t.me/axiom_solana_bot?start={token_mint}"
+                inline_keyboard.append([
+                    {"text": "💰 Sell on Axiom", "url": axiom_url},
+                    {"text": "📊 View Chart", "url": f"https://dexscreener.com/solana/{token_mint}"}
+                ])
+            
+            # Row 2: Analysis links
+            inline_keyboard.append([
+                {"text": "🔍 Solscan", "url": f"https://solscan.io/token/{token_mint}"},
+                {"text": "🦅 Birdeye", "url": f"https://birdeye.so/token/{token_mint}"}
+            ])
+            
+            # Row 3: Reminder buttons (callback data for future implementation)
+            if action in ["BUY", "REBUY"]:
+                inline_keyboard.append([
+                    {"text": "⏰ Remind 30min", "callback_data": f"remind_30_{token_mint[:8]}"},
+                    {"text": "⏰ Remind 60min", "callback_data": f"remind_60_{token_mint[:8]}"},
+                    {"text": "⏰ Remind 90min", "callback_data": f"remind_90_{token_mint[:8]}"}
+                ])
+            
+            # Row 4: Additional tools
+            inline_keyboard.append([
+                {"text": "🎯 Jupiter Swap", "url": f"https://jup.ag/swap/SOL-{token_mint}"},
+                {"text": "⚡ Photon", "url": f"https://photon-sol.tinyastro.io/en/lp/{token_mint}"}
+            ])
             
             url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
             payload = {
                 "chat_id": TELEGRAM_CHAT_ID,
                 "text": message.strip(),
                 "parse_mode": "HTML",
-                "disable_web_page_preview": False
+                "disable_web_page_preview": True,
+                "reply_markup": {
+                    "inline_keyboard": inline_keyboard
+                }
             }
             
             response = self.session.post(url, json=payload, timeout=10)
@@ -373,13 +416,92 @@ class GakeTracker:
         
         return False
     
+    def send_reminder(self, token_mint: str, symbol: str, minutes_ago: int):
+        """Send reminder notification for a token"""
+        try:
+            message = f"""
+⏰ <b>REMINDER: {symbol}</b>
+
+Token: <code>{token_mint[:8]}...{token_mint[-8:]}</code>
+
+Gake bought this {minutes_ago} minutes ago.
+It's time to check the chart and consider entry!
+
+📊 <b>Quick Actions:</b>
+"""
+            
+            # Build inline keyboard
+            inline_keyboard = [
+                [
+                    {"text": "🛒 Buy on Axiom", "url": f"https://t.me/axiom_solana_bot?start={token_mint}"},
+                    {"text": "📊 View Chart", "url": f"https://dexscreener.com/solana/{token_mint}"}
+                ],
+                [
+                    {"text": "🎯 Jupiter Swap", "url": f"https://jup.ag/swap/SOL-{token_mint}"},
+                    {"text": "⚡ Photon", "url": f"https://photon-sol.tinyastro.io/en/lp/{token_mint}"}
+                ]
+            ]
+            
+            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+            payload = {
+                "chat_id": TELEGRAM_CHAT_ID,
+                "text": message.strip(),
+                "parse_mode": "HTML",
+                "disable_web_page_preview": True,
+                "reply_markup": {"inline_keyboard": inline_keyboard}
+            }
+            
+            response = self.session.post(url, json=payload, timeout=10)
+            
+            if response.status_code == 200:
+                logger.info(f"Reminder sent for {symbol} ({minutes_ago}min)")
+            else:
+                logger.error(f"Failed to send reminder: {response.text}")
+                
+        except Exception as e:
+            logger.error(f"Error sending reminder: {e}")
+    
+    def schedule_reminder(self, token_mint: str, symbol: str, delay_minutes: int):
+        """Schedule a reminder to be sent after delay_minutes"""
+        reminder_time = datetime.now() + timedelta(minutes=delay_minutes)
+        reminder_queue.append({
+            "token_mint": token_mint,
+            "symbol": symbol,
+            "remind_at": reminder_time,
+            "original_delay": delay_minutes
+        })
+        logger.info(f"Reminder scheduled for {symbol} in {delay_minutes} minutes")
+    
+    def check_reminders(self):
+        """Check and send due reminders"""
+        global reminder_queue
+        now = datetime.now()
+        
+        # Find due reminders
+        due_reminders = [r for r in reminder_queue if r["remind_at"] <= now]
+        
+        # Send due reminders
+        for reminder in due_reminders:
+            self.send_reminder(
+                reminder["token_mint"],
+                reminder["symbol"],
+                reminder["original_delay"]
+            )
+        
+        # Remove sent reminders
+        reminder_queue = [r for r in reminder_queue if r["remind_at"] > now]
+    
     def monitor_wallet(self):
         """Main monitoring loop"""
         logger.info(f"🚀 Starting Gake Wallet Monitor for: {GAKE_WALLET}")
         logger.info(f"📱 Telegram notifications: {'Enabled' if TELEGRAM_BOT_TOKEN else 'Disabled'}")
+        logger.info(f"🔘 Interactive buttons: Enabled (Axiom integration)")
         
         while True:
             try:
+                # Check for due reminders
+                self.check_reminders()
+                
                 transactions = self.get_recent_transactions(limit=10)
                 
                 for tx in transactions:
