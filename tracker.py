@@ -343,20 +343,20 @@ class GakeTracker:
 <i>Powered by Gake Tracker v2.0</i>
 """
             
-            # Build inline keyboard with Axiom integration
+            # Build inline keyboard with Axiom web integration
             inline_keyboard = []
             
-            # Row 1: Trade buttons
+            # Row 1: Trade buttons - Direct to Axiom web app
             if action in ["BUY", "REBUY"]:
-                # Axiom buy link
-                axiom_url = f"https://t.me/axiom_solana_bot?start={token_mint}"
+                # Axiom web app buy link - opens directly in browser with token pre-filled
+                axiom_url = f"https://axiom.trade/meme/{token_mint}?chain=sol"
                 inline_keyboard.append([
                     {"text": "🛒 Buy on Axiom", "url": axiom_url},
                     {"text": "📊 View Chart", "url": f"https://dexscreener.com/solana/{token_mint}"}
                 ])
             elif action == "SELL":
-                # Axiom sell link
-                axiom_url = f"https://t.me/axiom_solana_bot?start={token_mint}"
+                # Axiom web app sell link - opens directly in browser with token pre-filled
+                axiom_url = f"https://axiom.trade/meme/{token_mint}?chain=sol"
                 inline_keyboard.append([
                     {"text": "💰 Sell on Axiom", "url": axiom_url},
                     {"text": "📊 View Chart", "url": f"https://dexscreener.com/solana/{token_mint}"}
@@ -430,10 +430,10 @@ It's time to check the chart and consider entry!
 📊 <b>Quick Actions:</b>
 """
             
-            # Build inline keyboard
+            # Build inline keyboard with direct Axiom web links
             inline_keyboard = [
                 [
-                    {"text": "🛒 Buy on Axiom", "url": f"https://t.me/axiom_solana_bot?start={token_mint}"},
+                    {"text": "🛒 Buy on Axiom", "url": f"https://axiom.trade/meme/{token_mint}?chain=sol"},
                     {"text": "📊 View Chart", "url": f"https://dexscreener.com/solana/{token_mint}"}
                 ],
                 [
